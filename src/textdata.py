@@ -9,15 +9,15 @@ class Conversation():
 
 class Dialog():
     actorId = ""
+    portrait = 0
     sentences = []
     afterDialogAnimationClip = []
 
 class Sentence():
     text = ""
     fontIndex = 0
-    portraitInde = 0
+    portraitIndex = 0
     animationClip = ""
 
 class Choice():
     choiceText = ""
-    
