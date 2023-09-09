@@ -8,6 +8,35 @@ from PIL import ImageTk, Image
 # Defs
 root = Tk()
 td = {}
+
+tdTemplate = {
+        "filename": "",
+        "conversations": [
+            {
+                "conversationId": "MyConversation",
+                "dialogLines": [
+                    {
+                        "actorId": "",
+                        "text": "Type your text here",
+                        "portraitPosition": 0,
+                        "portraitImageIndex": 0,
+                        "animationClip": 0
+                    }
+                ],
+                "choices": [
+                    {
+                        "choiceText": ""
+                    }
+                ]
+            }
+        ], 
+        "refs": [
+            {
+                "portraitImagePaths": []
+            }
+        ]
+    }
+
 selectedConvo = -1
 selectedDialogLine = -1
 
@@ -17,11 +46,11 @@ selectedDialogLine = -1
 class ArrayListBox(Frame):
     lbox = Listbox()
     contents = []
-    canRename = True
+    isConvoBox = True
 
-    def __init__(self, master, boxWidth=25, contents=[], canRename=True):
+    def __init__(self, master, boxWidth=25, contents=[], isConvoBox=True):
         super().__init__(master)
-        self.canRename = canRename
+        self.isConvoBox = isConvoBox
         self.lbox = Listbox(self.master, width=boxWidth,
                             height=15, activestyle=DOTBOX)
         self.lbox.bind("<Button-3>", self.convoBoxRightClick)
@@ -37,35 +66,40 @@ class ArrayListBox(Frame):
         self.lbox.config(yscrollcommand=scroll.set)
         scroll.config(command=self.lbox.yview)
 
-    def insert(self, index, value):
+    def insertAt(self, index, value):
         self.lbox.insert(index, value)
 
     def insert(self, value):
         self.lbox.insert(self.lbox.size(), value)
+
+    def delete(self, index):
+        self.lbox.delete(index, END)
+
+    def replace(self, index, value):
+        self.delete(index)
+        self.insertAt(index, value)
 
     def clear(self):
         self.lbox.delete(0, 'end')
 
     def convoBoxRightClick(self, event):
         popup = Menu(self, tearoff=False)
-        popup.add_command(label="Insert new", command=showRenameConvoTextbox)
-        popup.add_separator()
+        index = self.lbox.nearest(event.y_root)
 
         # Rename/duplicate/delete only available if an entry exists
         cmdState = 'active'
         if self.lbox.size() == 0:
             cmdState = 'disabled'
-        if self.canRename:
-            popup.add_command(label="Rename", state=cmdState)
-        popup.add_command(label="Duplicate", state=cmdState)
-        popup.add_command(label="Delete", state=cmdState)
+
+        # Commands are different depending on whether this is the conversation lbox or not
+        if self.isConvoBox:
+            popup.add_command(label="Insert new", command=showInsertConvoTextbox)
+            popup.add_separator()
+            popup.add_command(label="Rename", state=cmdState, command=showRenameConvoTextbox)
+            popup.add_command(label="Duplicate", state=cmdState)
+            popup.add_command(label="Delete", state=cmdState)
         popup.tk_popup(x=event.x_root, y=event.y_root)
         # self.lbox.select_clear(0)
-        # self.lbox.activate(self.lbox.nearest(event.y_root))
-
-    def rename(self, index):
-        print("Nah")
-
 
 # Widget defs
 menubar = Menu(root)
@@ -77,7 +111,7 @@ convoArrayListBox = ArrayListBox(convoFrame)
 
 dialogLineFrame = LabelFrame(
     centerframe, text="Dialog lines", bg="lightgray", fg="black", padx=15, pady=5)
-dialogLineBox = ArrayListBox(dialogLineFrame, canRename=False, boxWidth=50)
+dialogLineBox = ArrayListBox(dialogLineFrame, isConvoBox=False, boxWidth=50)
 
 dialogSettingsFrame = Frame(centerframe, padx=15, pady=5)
 singleLineSettingsFrame = LabelFrame(
@@ -88,14 +122,17 @@ textbox = Text(textboxFrame, bg="white", height=4,
                width=32, padx=2, pady=2, wrap="none")
 
 
-
 # Commands
 
 
 def onNew():
     global td
-    td = textdata.TextData()
-    updateDialogLineBoxContents()
+    td = tdTemplate
+    td["conversations"][0]["dialogLines"].append({
+        "text": "New line"
+    })
+    updateConvoBoxContents()
+    updateDialogLineBoxContents(0)
 
 
 def onOpen():
@@ -123,9 +160,7 @@ def onOpen():
     td = data
 
     # Convos setup
-    convoArrayListBox.clear()
-    for c in td['conversations']:
-        convoArrayListBox.insert(c['conversationId'])
+    updateConvoBoxContents()
 
     # Dialog line setup
     updateDialogLineBoxContents(0)
@@ -149,10 +184,12 @@ def onSaveAs():
 
     s = open(path, 'w')
     root.filename = path
+    td["filename"] = s.name
     if td != "":
         json.dump(td, s)
     s.close()
     return
+
 
 def onAddConvo(event):
     w = event.widget
@@ -174,13 +211,18 @@ def onAddDialogLine(event):
     w = event.widget
 
 
+def updateConvoBoxContents():
+    convoArrayListBox.clear()
+    for c in td['conversations']:
+        convoArrayListBox.insert(c['conversationId'])
+
+
 def updateDialogLineBoxContents(index):
     # Update dialog line box contents
     dialogLineBox.clear()
     rootConvo = td['conversations'][index]
-    for d in rootConvo['dialog']:
-        for s in d['sentences']:
-            dialogLineBox.insert(s['text'])
+    for s in rootConvo['dialogLines']:
+        dialogLineBox.insert(s['text'])
 
 
 def onSwitchDialogLine(event):
@@ -197,25 +239,37 @@ def onSwitchDialogLine(event):
 
 def updateDialogLineSettingsContents(index):
     selectedDialogLine = index
-    s = td['conversations'][selectedConvo]['sentences'][selectedDialogLine]
-    textbox.delete(1.0, "END")
-    textbox.insert("END", s['text'])
+    s = td['conversations'][selectedConvo]['dialogLines'][selectedDialogLine]
+    textbox.delete(1.0, END)
+    textbox.insert(END, s['text'])
 
 def showRenameConvoTextbox():
+    showInsertConvoTextbox(convoArrayListBox.lbox.curselection())
+
+def showInsertConvoTextbox(elementIndex=-1):    # Either replace element at index or add new element
     global popupRoot
     popupRoot = Tk()
 
     convoNameFrame = LabelFrame(
         popupRoot, text="Enter conversation ID", bg="grey", fg="white", padx=15, pady=5)
     convoNameTextbox = Text(convoNameFrame, bg="white", height=1,
-               width=24, padx=2, pady=2, wrap="none")
+                            width=24, padx=2, pady=2, wrap="none")
 
     def onConfirmName():
         print("Yeah")
         s = convoNameTextbox.get("1.0", END)
-        convoArrayListBox.insert(s)
-        convos = td['conversations']
-        convos.append({'conversationId': s, 'dialogLines': []})
+        if elementIndex == -1:
+            convoArrayListBox.insert(s)
+            td['conversations'].append({
+                'conversationId': s,
+                'dialogLines': []
+            })
+        else:
+            convoArrayListBox.replace(elementIndex, s)
+            convo = td['conversations']
+            c = convo[elementIndex]
+            c['conversationId'] = s
+        
         popupRoot.destroy()
 
     w = 320
@@ -227,7 +281,8 @@ def showRenameConvoTextbox():
     popupRoot.title("Enter conversation ID")
     convoNameFrame.grid(column=0, row=0)
     convoNameTextbox.grid(column=0, row=0, padx=5)
-    convoNameButton = Button(convoNameFrame, text="OK", padx=15, command=onConfirmName)
+    convoNameButton = Button(convoNameFrame, text="OK",
+                             padx=15, command=onConfirmName)
     convoNameButton.grid(column=1, row=0)
 
 
@@ -240,7 +295,7 @@ def onExit():
 # Layout
 root.geometry("1050x300")
 root.title("Mountain dialog editor")
-#root.resizable(False, False)
+# root.resizable(False, False)
 
 # Toolbar
 root.config(menu=menubar)
@@ -281,7 +336,7 @@ dialogLineBox.lbox.bind("<<ListboxSelect>>", onSwitchDialogLine)
 # Settings frames
 dialogSettingsFrame.grid(row=0, column=2)
 singleLineSettingsFrame.grid(row=0, column=0, sticky=N)
-#convoSettingsFrame.grid(row=1, column=0, sticky=S)
+# convoSettingsFrame.grid(row=1, column=0, sticky=S)
 
 # Dialog line settings
 textboxFrame.grid(row=0, column=0)
@@ -293,29 +348,31 @@ portraitFrame.grid(row=0, column=1)
 portrait = ImageTk.PhotoImage(Image.open(
     "D:/_Code projects/MountainDialogEditor/src/res/Bo.png").resize((64, 64)))
 portraitButton = Button(portraitFrame, image=portrait,
-                      relief=GROOVE).grid(row=0, column=1)
+                        relief=GROOVE).grid(row=0, column=1)
 fontFrame = LabelFrame(
     singleLineSettingsFrame, text="Font", bg="white", fg="black", padx=15, pady=6)
 fontFrame.grid(row=1, column=0)
-fontButton = Button(fontFrame, text="Coming soon?").grid(row=0, column=0)
+fontButton = Button(fontFrame, text="Default").grid(row=0, column=0)
 
 portraitPositionFrame = LabelFrame(
     singleLineSettingsFrame, text="Portrait position", bg="white", fg="black", padx=15, pady=6)
 portraitPositionFrame.grid(row=1, column=1)
-leftPortraitButton = Button(portraitPositionFrame, text="   L   ", bg="black")
+leftPortraitButton = Button(portraitPositionFrame,
+                            text="   L   ", bg="black", fg="white")
 rightPortraitButton = Button(portraitPositionFrame, text="   R   ", bg="white")
 leftPortraitButton.grid(row=0, column=0)
 rightPortraitButton.grid(row=0, column=1)
 
 # Conversation settings
-#convoNameFrame.grid(column=0, row=0)
-#convoNameTextbox.grid(column=0, row=0, sticky=W)
+# convoNameFrame.grid(column=0, row=0)
+# convoNameTextbox.grid(column=0, row=0, sticky=W)
 
-#fontLabel = Label(fontFrame).grid(row=0, column=1)
+# fontLabel = Label(fontFrame).grid(row=0, column=1)
 
 # Cheat sheet
 # cheatSheetFrame = LabelFrame(dialogSettingsFrame, text="Cheat sheet", bg="white", fg="black", padx=15, pady=5)
 # cheatlabel = Label(cheatSheetFrame, text="Was wa a wa").grid(row=0, column=0)
 # cheatSheetFrame.grid(row=1, column=0, sticky=S)
 
+onNew()
 root.mainloop()
